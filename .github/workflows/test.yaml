@@ -1,0 +1,109 @@
+name: Terraform AWS Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+# Required for GitHub OIDC authentication.
+# id-token: write allows GitHub to request an OIDC token.
+# contents: read allows actions/checkout to read the repository.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ---------------------------------------------------------
+      # 1. Checkout repository
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # 2. Configure AWS credentials using GitHub OIDC
+      #
+      # No AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY is required.
+      #
+      # AWS_IAM_ROLE should contain:
+      # arn:aws:iam::287785301730:role/AWS-Github-OIDC
+      # ---------------------------------------------------------
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+          role-session-name: GitHubActions-Terraform-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---------------------------------------------------------
+      # 3. Verify AWS authentication
+      #
+      # This confirms that GitHub successfully assumed the
+      # AWS-Github-OIDC IAM role.
+      # ---------------------------------------------------------
+      - name: Verify AWS identity
+        run: |
+          echo "AWS Account:"
+          aws sts get-caller-identity
+
+      # ---------------------------------------------------------
+      # 4. Install Terraform
+      # ---------------------------------------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.9
+
+      # ---------------------------------------------------------
+      # 5. Check Terraform version
+      # ---------------------------------------------------------
+      - name: Terraform version
+        run: terraform version
+
+      # ---------------------------------------------------------
+      # 6. Initialize Terraform
+      # ---------------------------------------------------------
+      - name: Terraform Init
+        run: terraform init
+
+      # ---------------------------------------------------------
+      # 7. Format check
+      #
+      # This fails the workflow if Terraform files are not
+      # properly formatted.
+      # ---------------------------------------------------------
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # ---------------------------------------------------------
+      # 8. Validate Terraform configuration
+      # ---------------------------------------------------------
+      - name: Terraform Validate
+        run: terraform validate
+
+      # ---------------------------------------------------------
+      # 9. Generate Terraform plan
+      #
+      # IMPORTANT:
+      # plan does NOT create AWS resources.
+      # ---------------------------------------------------------
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # ---------------------------------------------------------
+      # 10. Apply Terraform
+      #
+      # IMPORTANT:
+      # This will create/update AWS infrastructure.
+      # Only enable this after reviewing the Terraform plan.
+      # ---------------------------------------------------------
